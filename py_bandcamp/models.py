@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 from py_bandcamp.session import SESSION as requests
-from py_bandcamp.utils import extract_ldjson_blob, get_props
+from py_bandcamp.utils import extract_ldjson_blob, get_props, _extract_tralbum
 
 
 class BandcampTrack:
@@ -85,10 +85,25 @@ class BandcampTrack:
 
     @staticmethod
     def get_track_data(url):
-        data = extract_ldjson_blob(url, clean=True)
+        resp = requests.get(url)
+        text = resp.text
+
+        ld_blob = text.split('<script type="application/ld+json">')[-1].split("</script>")[0]
+        import json
+
+        def _clean(d):
+            if isinstance(d, dict):
+                return {k.replace("@", ""): _clean(v) for k, v in d.items()}
+            if isinstance(d, list):
+                return [_clean(i) for i in d]
+            return d
+
+        data = _clean(json.loads(ld_blob))
+        tralbum = _extract_tralbum(text)
+
         kwords = data.get('keywords', "")
         if isinstance(kwords, str):
-            kwords = kwords.split(", ")
+            kwords = kwords.split(", ") if kwords else []
         track = {
             'dateModified': data.get('dateModified'),
             'datePublished': data.get('datePublished'),
@@ -100,6 +115,15 @@ class BandcampTrack:
         }
         for k, v in get_props(data).items():
             track[k] = v
+
+        # Pull stream URL from data-tralbum if not already present
+        if not track.get("file_mp3-128"):
+            trackinfo = tralbum.get("trackinfo") or []
+            if trackinfo:
+                mp3 = trackinfo[0].get("file", {}).get("mp3-128")
+                if mp3:
+                    track["file_mp3-128"] = mp3
+
         return track
 
     def __repr__(self):
@@ -213,12 +237,14 @@ class BandcampAlbum:
 
         tracks = []
 
-        for d in data.get('itemListElement', []):
-            d = d['item']
+        for entry in data.get('itemListElement', []):
+            d = entry.get('item', {})
             track = {
                 "title": d.get('name'),
                 "url": d.get('id') or url,
                 'type': d.get('type'),
+                "tracknum": entry.get('position'),
+                "duration_iso": d.get('duration'),
             }
             for k, v in get_props(d).items():
                 track[k] = v
@@ -281,7 +307,7 @@ class BandcampLabel:
 
     @staticmethod
     def from_url(url):
-        return BandcampTrack({"url": url})
+        return BandcampLabel({"url": url}, scrap=False)
 
     @property
     def url(self):
@@ -344,15 +370,18 @@ class BandcampArtist:
         albums = []
         soup = BeautifulSoup(requests.get(url).text, "html.parser")
         for album in soup.find_all("a"):
-            album_url = album.find("p", {"class": "title"})
-            if album_url:
-                title = album_url.text.strip()
-                art = album.find("div", {"class": "art"}).find("img")["src"]
-                album_url = url + album["href"]
-                album = BandcampAlbum({"album_name": title,
-                                       "image": art,
-                                       "url": album_url})
-                albums.append(album)
+            title_tag = album.find("p", {"class": "title"})
+            if not title_tag:
+                continue
+            title = title_tag.text.strip()
+            art_div = album.find("div", {"class": "art"})
+            art_img = art_div.find("img") if art_div else None
+            art = art_img["src"] if art_img else None
+            href = album.get("href", "")
+            album_url = url + href
+            albums.append(BandcampAlbum({"album_name": title,
+                                         "image": art,
+                                         "url": album_url}))
         return albums
 
     @property
@@ -361,7 +390,7 @@ class BandcampArtist:
 
     @staticmethod
     def from_url(url):
-        return BandcampTrack({"url": url})
+        return BandcampArtist({"url": url}, scrap=False)
 
     @property
     def url(self):

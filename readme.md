@@ -1,60 +1,54 @@
-## py bandcamp
+# py_bandcamp
 
-for your [bandcamp](https://bandcamp.com) hipster music scrapping needs
+Python scraper for Bandcamp — search, metadata, and stream URL extraction.
 
-## install
+## Install
 
-    pip install py_bandcamp
+```bash
+pip install py_bandcamp
+```
 
-## usage
+## Quick start
 
-    from py_bandcamp import BandCamper
+```python
+from py_bandcamp import BandCamp, BandcampTrack, BandcampAlbum
 
-    b = BandCamper()
+# Get a streamable MP3 URL
+url = BandCamp.get_stream_url("https://deadunicorn.bandcamp.com/track/astronaut-problems")
+print(url)  # https://t4.bcbits.com/stream/...
 
-    for item in b.search_tag("stoner"):
-        print item
-        break
+# Search
+for track in BandCamp.search_tracks("astronaut problems"):
+    print(track, track.url)
 
-    for item in b.search_artists("Scythe"):
-        print item
-        break
+for album in BandCamp.search_albums("black metal"):
+    print(album.title, album.data.get("artist"))
 
-    for item in b.search_albums("Center Of All Infinity"):
-        print item
-        break
+# Load a track directly
+track = BandcampTrack.from_url("https://deadunicorn.bandcamp.com/track/astronaut-problems")
+print(track.title, track.stream, track.image)
 
-    for item in b.search_tracks("Astronaut Problems"):
-        print item
-        break
+# Load an album
+album = BandcampAlbum.from_url("https://naxatras.bandcamp.com/album/iii")
+for t in album.tracks:
+    print(t.track_num, t.title)
+```
 
-    for item in b.search_labels("evil"):
-        print item
-        break
+## API
 
-    for item in b.search("cyber punk"):
-        print item
-        break
+See [docs/bandcamp_api.md](docs/bandcamp_api.md) for the full reference.
 
+## Examples
 
-    tracks = b.parse_bandcamp_url("https://lordpiggy.bandcamp.com/track/in-the-name-of-porn-grind-on")
-    streams = b.get_streams("https://hellpatrol.bandcamp.com/track/satanic-storm")
+| Script | What it shows |
+|---|---|
+| `examples/track_stream.py` | Fetch track metadata and stream URL |
+| `examples/album_browse.py` | Browse an album: tracks, releases, artist |
+| `examples/search.py` | Search for tracks, albums, artists, labels |
 
-    print tracks[0].keys()
-    print streams
+## Notes
 
-    """
-    output:
-
-    {'url': 'https://naxatras.bandcamp.com/album/iii', 'name': u'III', 'artist': u'Naxatras'}
-    {'name': u'Scythelord', 'tags': [u'thrash metal', u'metal', u'death metal'], 'url': 'https://scythelordofficial.bandcamp.com', 'location': u'hell, Michigan', 'genre': u'Metal', 'type': u'artist'}
-    {'tags': [u'sweden', u'space rock', u'spacerock', u'gothenburg', u'psychedelic rock', u'psych', u'rock', u'stoner'], 'url': 'https://yurigagarinswe.bandcamp.com/album/at-the-center-of-all-infinity', 'type': u'album', 'track_number': u'6', 'released': u'02 December 2015', 'length': u'6 tracks, 40 minutes', 'album_name': u'At The Center Of All Infinity', 'minutes': u'40'}
-    {'artist': u'Dead Unicorn', 'url': 'https://deadunicorn.bandcamp.com/track/astronaut-problems', 'tags': [], 'released': u'26 May 2017', 'track_name': u'Astronaut Problems', 'album_name': u'Aliens', 'type': u'track'}
-    {'url': 'https://versusevil.bandcamp.com', 'tags': [], 'type': u'label', 'name': u'Versus Evil', 'location': u'Maryland'}
-    {'artist': u'Floodlore', 'url': 'https://floodlore.bandcamp.com/track/cyber-punk', 'tags': [], 'released': u'26 January 2018', 'track_name': u'Cyber Punk', 'album_name': u'When It Was Forged: Chapters 1 and 2', 'type': u'track'}
-    ['album', 'album_url', 'track_name', 'artist', 'url', 'artwork_url', 'year', 'tags', 'track_number']
-    [u'https://t4.bcbits.com/stream/5af2fa61869d06b9304470860b2dd9c2/mp3-128/3632181075?p=0&ts=1523339746&t=792b74d8c325babdc5077041ad2a4dda24bb8362&token=1523339746_7a4f055c7ecb5edc5137149b4e6fdfaae42f2365']
-
-    """
-
-
+- Stream URLs come from the `data-tralbum` attribute on Bandcamp pages (not the ld+json blob).
+  They are time-limited tokens — cache them for short periods only.
+- HTTP responses are cached in memory for 5 minutes via `requests-cache`.
+- Bandcamp does not provide a public API; this library scrapes HTML and may break if Bandcamp changes its markup.
