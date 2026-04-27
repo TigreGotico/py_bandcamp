@@ -1,7 +1,7 @@
 from bs4 import BeautifulSoup
 
 from py_bandcamp.models import BandcampTrack, BandcampAlbum, BandcampArtist, BandcampLabel
-from py_bandcamp.session import SESSION as requests
+from py_bandcamp.session import SESSION as requests, set_session
 from py_bandcamp.utils import extract_ldjson_blob, get_props, extract_blob, \
     get_stream_data
 
