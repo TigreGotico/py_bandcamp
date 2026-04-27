@@ -92,36 +92,51 @@ class BandCamp:
             yield a
 
     @classmethod
-    def search(cls, name, page=1, albums=True, tracks=True, artists=True,
-               labels=False):
-        params = {"page": page, "q": name}
+    def search(cls, name, albums=True, tracks=True, artists=True,
+               labels=False, max_pages=10, _page=1, _seen=None):
+        _seen = _seen or set()
+
+        # Use Bandcamp's item_type filter when only one type is requested
+        if tracks and not albums and not artists and not labels:
+            item_type = "t"
+        elif albums and not tracks and not artists and not labels:
+            item_type = "a"
+        elif artists and not albums and not tracks and not labels:
+            item_type = "b"
+        else:
+            item_type = None
+
+        params = {"page": _page, "q": name}
+        if item_type:
+            params["item_type"] = item_type
         response = requests.get('http://bandcamp.com/search', params=params)
         soup = BeautifulSoup(response.content, 'html.parser')
 
-        seen = []
+        page_results = []
         for item in soup.find_all("li", class_="searchresult"):
-            item_type = item.find('div', class_='itemtype').text.strip().lower()
-            if item_type == "album" and albums:
+            item_type_text = item.find('div', class_='itemtype').text.strip().lower()
+            if item_type_text == "album" and albums:
                 data = cls._parse_album(item)
-            elif item_type == "track" and tracks:
+            elif item_type_text == "track" and tracks:
                 data = cls._parse_track(item)
-            elif item_type == "artist" and artists:
+            elif item_type_text == "artist" and artists:
                 data = cls._parse_artist(item)
-            elif item_type == "label" and labels:
+            elif item_type_text == "label" and labels:
                 data = cls._parse_label(item)
             else:
                 continue
-            if data is None:
+            if data is None or str(data) in _seen:
                 continue
+            _seen.add(str(data))
+            page_results.append(data)
             yield data
-            seen.append(data)
-        if not seen:
-            return  # no more pages
-        for item in cls.search(name, page=page + 1, albums=albums,
-                               tracks=tracks, artists=artists, labels=labels):
-            if item in seen:
-                return  # duplicate data, bail out of recursion
-            yield item
+
+        if not page_results or _page >= max_pages:
+            return
+        yield from cls.search(name, albums=albums, tracks=tracks,
+                              artists=artists, labels=labels,
+                              max_pages=max_pages, _page=_page + 1,
+                              _seen=_seen)
 
     @staticmethod
     def get_track_lyrics(track_url):

@@ -136,6 +136,12 @@ class BandcampTrack:
     def __str__(self):
         return self.url
 
+    def __eq__(self, other):
+        return str(self) == str(other)
+
+    def __hash__(self):
+        return hash(self.url)
+
 
 class BandcampAlbum:
     def __init__(self, data, scrap=True):
@@ -294,6 +300,12 @@ class BandcampAlbum:
     def __str__(self):
         return self.url
 
+    def __eq__(self, other):
+        return str(self) == str(other)
+
+    def __hash__(self):
+        return hash(self.url)
+
 
 class BandcampLabel:
     def __init__(self, data, scrap=True):
@@ -345,6 +357,12 @@ class BandcampLabel:
 
     def __str__(self):
         return self.url
+
+    def __eq__(self, other):
+        return str(self) == str(other)
+
+    def __hash__(self):
+        return hash(self.url)
 
 
 class BandcampArtist:
@@ -434,6 +452,7 @@ class BandcampArtist:
         return self.url
 
     def __eq__(self, other):
-        if str(self) == str(other):
-            return True
-        return False
+        return str(self) == str(other)
+
+    def __hash__(self):
+        return hash(self.url)
