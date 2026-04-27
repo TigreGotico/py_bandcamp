@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 from py_bandcamp.session import SESSION as requests
-from py_bandcamp.utils import extract_ldjson_blob, get_props, _extract_tralbum
+from py_bandcamp.utils import extract_ldjson_blob, get_props, _extract_tralbum, _parse_iso_duration
 
 
 class BandcampTrack:
@@ -54,7 +54,11 @@ class BandcampTrack:
 
     @property
     def duration(self):
-        return self.data.get("duration_secs") or 0
+        secs = self.data.get("duration_secs")
+        if secs:
+            return secs
+        iso = self.data.get("duration_iso") or ""
+        return _parse_iso_duration(iso)
 
     @property
     def stream(self):

@@ -1,6 +1,21 @@
 import json
+import re
 
 from py_bandcamp.session import SESSION as requests
+
+
+def _parse_iso_duration(iso):
+    """Parse ISO 8601 duration string (e.g. 'P00H11M17S') to total seconds."""
+    if not iso:
+        return 0
+    m3 = re.search(r'(\d+)H(\d+)M(\d+)S', iso)
+    if m3:
+        h, mn, s = int(m3.group(1)), int(m3.group(2)), int(m3.group(3))
+        return h * 3600 + mn * 60 + s
+    m2 = re.search(r'(\d+)M(\d+)S', iso)
+    if m2:
+        return int(m2.group(1)) * 60 + int(m2.group(2))
+    return 0
 
 
 def extract_blob(url, params=None):

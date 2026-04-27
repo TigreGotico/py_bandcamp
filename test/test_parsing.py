@@ -11,6 +11,15 @@ from py_bandcamp.utils import get_props
 # utils
 # ---------------------------------------------------------------------------
 
+def test_parse_iso_duration():
+    from py_bandcamp.utils import _parse_iso_duration
+    assert _parse_iso_duration("P00H11M17S") == 677
+    assert _parse_iso_duration("PT3M45S") == 225
+    assert _parse_iso_duration("P1H02M33S") == 3753
+    assert _parse_iso_duration("") == 0
+    assert _parse_iso_duration(None) == 0
+
+
 def test_get_props_empty():
     assert get_props({}) == {}
 
