@@ -210,6 +210,21 @@ class BandcampAlbum:
         return self.tracks[int(num) - 1]
 
     @property
+    def recommendations(self):
+        return self.get_recommendations(self.url)
+
+    @property
+    def related_artists(self):
+        seen = set()
+        artists = []
+        for album in self.get_recommendations(self.url):
+            artist_name = album.data.get("artist", "")
+            if artist_name and artist_name not in seen:
+                seen.add(artist_name)
+                artists.append(BandcampArtist({"name": artist_name, "url": album.url.split("/album/")[0]}, scrap=False))
+        return artists
+
+    @property
     def comments(self):
         return self.get_comments(self.url)
 
@@ -272,6 +287,34 @@ class BandcampAlbum:
                 track[k] = v
             tracks.append(BandcampTrack(track, parse=False))
         return tracks
+
+    @staticmethod
+    def get_recommendations(url):
+        """Albums recommended by Bandcamp for fans of this album ('If you like…')."""
+        resp = requests.get(url)
+        if not resp.ok:
+            return []
+        soup = BeautifulSoup(resp.text, "html.parser")
+        container = soup.find(id="recommendations_container")
+        if not container:
+            return []
+        albums = []
+        for li in container.find_all("li", class_="recommended-album"):
+            album_url_tag = li.find("a", class_="album-link")
+            if not album_url_tag:
+                continue
+            href = album_url_tag.get("href", "").split("?")[0]
+            title_span = album_url_tag.find(class_="release-title")
+            artist_span = album_url_tag.find(class_="by-artist")
+            raw_artist = artist_span.text.strip() if artist_span else li.get("data-artist", "")
+            artist = raw_artist.removeprefix("by ") if raw_artist else li.get("data-artist")
+            albums.append(BandcampAlbum({
+                "title": title_span.text.strip() if title_span else li.get("data-albumtitle"),
+                "artist": artist,
+                "url": href,
+                "image": (li.find("img") or {}).get("src"),
+            }, scrap=False))
+        return albums
 
     @staticmethod
     def get_comments(url):
@@ -389,7 +432,33 @@ class BandcampArtist:
             self.scrap()
 
     def scrap(self):
-        self._page_data = {}  # TODO
+        if not self._url:
+            return {}
+        try:
+            resp = requests.get(self._url)
+            if not resp.ok:
+                return {}
+            soup = BeautifulSoup(resp.text, "html.parser")
+            loc_tag = soup.find(id="band-name-location")
+            name, location = None, None
+            if loc_tag:
+                name_span = loc_tag.find(class_="title")
+                loc_span = loc_tag.find(class_="location")
+                name = name_span.text.strip() if name_span else None
+                location = loc_span.text.strip() if loc_span else None
+            genre_tag = soup.find("dd", class_="genre") or soup.find("span", class_="genre")
+            genre = genre_tag.text.strip() if genre_tag else None
+            img_tag = soup.find("div", id="bio-container")
+            image = None
+            if img_tag:
+                img = img_tag.find("img")
+                image = img["src"] if img else None
+            self._page_data = {k: v for k, v in {
+                "name": name, "location": location,
+                "genre": genre, "image": image,
+            }.items() if v is not None}
+        except Exception:
+            self._page_data = {}
         return self._page_data
 
     @property
@@ -427,7 +496,7 @@ class BandcampArtist:
 
     @staticmethod
     def from_url(url):
-        return BandcampArtist({"url": url}, scrap=False)
+        return BandcampArtist({"url": url})
 
     @property
     def url(self):

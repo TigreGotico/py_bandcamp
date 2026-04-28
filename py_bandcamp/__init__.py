@@ -98,6 +98,17 @@ class BandCamp:
                               _seen=_seen)
 
     @staticmethod
+    def get_recommendations(url):
+        """Albums recommended for fans of a given album URL."""
+        return BandcampAlbum.get_recommendations(url)
+
+    @staticmethod
+    def get_related_artists(url):
+        """Unique artists recommended for fans of a given album URL."""
+        album = BandcampAlbum({"url": url}, scrap=False)
+        return album.related_artists
+
+    @staticmethod
     def get_track_lyrics(track_url):
         track_page = requests.get(track_url)
         track_soup = BeautifulSoup(track_page.text, 'html.parser')
