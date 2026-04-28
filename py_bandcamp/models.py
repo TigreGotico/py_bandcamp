@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 from py_bandcamp.session import SESSION as requests
-from py_bandcamp.utils import extract_ldjson_blob, get_props
+from py_bandcamp.utils import extract_ldjson_blob, get_props, _extract_tralbum, _parse_iso_duration
 
 
 class BandcampTrack:
@@ -54,7 +54,11 @@ class BandcampTrack:
 
     @property
     def duration(self):
-        return self.data.get("duration_secs") or 0
+        secs = self.data.get("duration_secs")
+        if secs:
+            return secs
+        iso = self.data.get("duration_iso") or ""
+        return _parse_iso_duration(iso)
 
     @property
     def stream(self):
@@ -85,10 +89,34 @@ class BandcampTrack:
 
     @staticmethod
     def get_track_data(url):
-        data = extract_ldjson_blob(url, clean=True)
+        import json
+
+        resp = requests.get(url)
+        if not resp.ok:
+            raise ValueError(f"HTTP {resp.status_code} fetching {url}")
+        text = resp.text
+
+        if '<script type="application/ld+json">' not in text:
+            raise ValueError(f"No ld+json found at {url} — may be a 404 or non-track page")
+
+        ld_blob = text.split('<script type="application/ld+json">')[-1].split("</script>")[0]
+
+        def _clean(d):
+            if isinstance(d, dict):
+                return {k.replace("@", ""): _clean(v) for k, v in d.items()}
+            if isinstance(d, list):
+                return [_clean(i) for i in d]
+            return d
+
+        try:
+            data = _clean(json.loads(ld_blob))
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Failed to parse ld+json from {url}: {e}") from e
+        tralbum = _extract_tralbum(text)
+
         kwords = data.get('keywords', "")
         if isinstance(kwords, str):
-            kwords = kwords.split(", ")
+            kwords = kwords.split(", ") if kwords else []
         track = {
             'dateModified': data.get('dateModified'),
             'datePublished': data.get('datePublished'),
@@ -100,6 +128,18 @@ class BandcampTrack:
         }
         for k, v in get_props(data).items():
             track[k] = v
+
+        # Pull stream URL and duration from data-tralbum if not already present
+        trackinfo = (tralbum.get("trackinfo") or [{}])[0]
+        if not track.get("file_mp3-128"):
+            mp3 = trackinfo.get("file", {}).get("mp3-128")
+            if mp3:
+                track["file_mp3-128"] = mp3
+        if not track.get("duration_secs"):
+            dur = trackinfo.get("duration")
+            if dur:
+                track["duration_secs"] = int(dur)
+
         return track
 
     def __repr__(self):
@@ -107,6 +147,12 @@ class BandcampTrack:
 
     def __str__(self):
         return self.url
+
+    def __eq__(self, other):
+        return str(self) == str(other)
+
+    def __hash__(self):
+        return hash(self.url)
 
 
 class BandcampAlbum:
@@ -164,6 +210,21 @@ class BandcampAlbum:
         return self.tracks[int(num) - 1]
 
     @property
+    def recommendations(self):
+        return self.get_recommendations(self.url)
+
+    @property
+    def related_artists(self):
+        seen = set()
+        artists = []
+        for album in self.get_recommendations(self.url):
+            artist_name = album.data.get("artist", "")
+            if artist_name and artist_name not in seen:
+                seen.add(artist_name)
+                artists.append(BandcampArtist({"name": artist_name, "url": album.url.split("/album/")[0]}, scrap=False))
+        return artists
+
+    @property
     def comments(self):
         return self.get_comments(self.url)
 
@@ -213,12 +274,14 @@ class BandcampAlbum:
 
         tracks = []
 
-        for d in data.get('itemListElement', []):
-            d = d['item']
+        for entry in data.get('itemListElement', []):
+            d = entry.get('item', {})
             track = {
                 "title": d.get('name'),
                 "url": d.get('id') or url,
                 'type': d.get('type'),
+                "tracknum": entry.get('position'),
+                "duration_iso": d.get('duration'),
             }
             for k, v in get_props(d).items():
                 track[k] = v
@@ -226,12 +289,43 @@ class BandcampAlbum:
         return tracks
 
     @staticmethod
+    def get_recommendations(url):
+        """Albums recommended by Bandcamp for fans of this album ('If you like…')."""
+        resp = requests.get(url)
+        if not resp.ok:
+            return []
+        soup = BeautifulSoup(resp.text, "html.parser")
+        container = soup.find(id="recommendations_container")
+        if not container:
+            return []
+        albums = []
+        for li in container.find_all("li", class_="recommended-album"):
+            album_url_tag = li.find("a", class_="album-link")
+            if not album_url_tag:
+                continue
+            href = album_url_tag.get("href", "").split("?")[0]
+            title_span = album_url_tag.find(class_="release-title")
+            artist_span = album_url_tag.find(class_="by-artist")
+            raw_artist = artist_span.text.strip() if artist_span else li.get("data-artist", "")
+            artist = raw_artist.removeprefix("by ") if raw_artist else li.get("data-artist")
+            albums.append(BandcampAlbum({
+                "title": title_span.text.strip() if title_span else li.get("data-albumtitle"),
+                "artist": artist,
+                "url": href,
+                "image": (li.find("img") or {}).get("src"),
+            }, scrap=False))
+        return albums
+
+    @staticmethod
     def get_comments(url):
         data = extract_ldjson_blob(url, clean=True)
         comments = []
         for d in data.get("comment", []):
+            text = d.get("text", "")
+            if isinstance(text, list):
+                text = " ".join(text)
             comment = {
-                "text": d["text"],
+                "text": text,
                 'image': d["author"].get("image"),
                 "author": d["author"]["name"]
             }
@@ -264,6 +358,12 @@ class BandcampAlbum:
     def __str__(self):
         return self.url
 
+    def __eq__(self, other):
+        return str(self) == str(other)
+
+    def __hash__(self):
+        return hash(self.url)
+
 
 class BandcampLabel:
     def __init__(self, data, scrap=True):
@@ -281,7 +381,7 @@ class BandcampLabel:
 
     @staticmethod
     def from_url(url):
-        return BandcampTrack({"url": url})
+        return BandcampLabel({"url": url}, scrap=False)
 
     @property
     def url(self):
@@ -316,6 +416,12 @@ class BandcampLabel:
     def __str__(self):
         return self.url
 
+    def __eq__(self, other):
+        return str(self) == str(other)
+
+    def __hash__(self):
+        return hash(self.url)
+
 
 class BandcampArtist:
     def __init__(self, data, scrap=True):
@@ -326,7 +432,33 @@ class BandcampArtist:
             self.scrap()
 
     def scrap(self):
-        self._page_data = {}  # TODO
+        if not self._url:
+            return {}
+        try:
+            resp = requests.get(self._url)
+            if not resp.ok:
+                return {}
+            soup = BeautifulSoup(resp.text, "html.parser")
+            loc_tag = soup.find(id="band-name-location")
+            name, location = None, None
+            if loc_tag:
+                name_span = loc_tag.find(class_="title")
+                loc_span = loc_tag.find(class_="location")
+                name = name_span.text.strip() if name_span else None
+                location = loc_span.text.strip() if loc_span else None
+            genre_tag = soup.find("dd", class_="genre") or soup.find("span", class_="genre")
+            genre = genre_tag.text.strip() if genre_tag else None
+            img_tag = soup.find("div", id="bio-container")
+            image = None
+            if img_tag:
+                img = img_tag.find("img")
+                image = img["src"] if img else None
+            self._page_data = {k: v for k, v in {
+                "name": name, "location": location,
+                "genre": genre, "image": image,
+            }.items() if v is not None}
+        except Exception:
+            self._page_data = {}
         return self._page_data
 
     @property
@@ -344,15 +476,18 @@ class BandcampArtist:
         albums = []
         soup = BeautifulSoup(requests.get(url).text, "html.parser")
         for album in soup.find_all("a"):
-            album_url = album.find("p", {"class": "title"})
-            if album_url:
-                title = album_url.text.strip()
-                art = album.find("div", {"class": "art"}).find("img")["src"]
-                album_url = url + album["href"]
-                album = BandcampAlbum({"album_name": title,
-                                       "image": art,
-                                       "url": album_url})
-                albums.append(album)
+            title_tag = album.find("p", {"class": "title"})
+            if not title_tag:
+                continue
+            title = title_tag.text.strip()
+            art_div = album.find("div", {"class": "art"})
+            art_img = art_div.find("img") if art_div else None
+            art = art_img["src"] if art_img else None
+            href = album.get("href", "")
+            album_url = url + href
+            albums.append(BandcampAlbum({"album_name": title,
+                                         "image": art,
+                                         "url": album_url}))
         return albums
 
     @property
@@ -361,7 +496,7 @@ class BandcampArtist:
 
     @staticmethod
     def from_url(url):
-        return BandcampTrack({"url": url})
+        return BandcampArtist({"url": url})
 
     @property
     def url(self):
@@ -401,6 +536,7 @@ class BandcampArtist:
         return self.url
 
     def __eq__(self, other):
-        if str(self) == str(other):
-            return True
-        return False
+        return str(self) == str(other)
+
+    def __hash__(self):
+        return hash(self.url)
