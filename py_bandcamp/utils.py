@@ -84,11 +84,18 @@ def get_props(d, props=None):
 
 def get_stream_data(url):
     resp = requests.get(url)
+    if not resp.ok:
+        raise ValueError(f"HTTP {resp.status_code} fetching {url}")
     text = resp.text
 
     # ld+json gives metadata; data-tralbum gives the actual streaming URLs
+    if '<script type="application/ld+json">' not in text:
+        raise ValueError(f"No ld+json at {url}")
     ld_blob = text.split('<script type="application/ld+json">')[-1].split("</script>")[0]
-    data = json.loads(ld_blob)
+    try:
+        data = json.loads(ld_blob)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Failed to parse ld+json from {url}: {e}") from e
 
     tralbum = _extract_tralbum(text)
 

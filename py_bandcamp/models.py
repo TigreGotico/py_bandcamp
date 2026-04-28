@@ -89,11 +89,17 @@ class BandcampTrack:
 
     @staticmethod
     def get_track_data(url):
+        import json
+
         resp = requests.get(url)
+        if not resp.ok:
+            raise ValueError(f"HTTP {resp.status_code} fetching {url}")
         text = resp.text
 
+        if '<script type="application/ld+json">' not in text:
+            raise ValueError(f"No ld+json found at {url} — may be a 404 or non-track page")
+
         ld_blob = text.split('<script type="application/ld+json">')[-1].split("</script>")[0]
-        import json
 
         def _clean(d):
             if isinstance(d, dict):
@@ -102,7 +108,10 @@ class BandcampTrack:
                 return [_clean(i) for i in d]
             return d
 
-        data = _clean(json.loads(ld_blob))
+        try:
+            data = _clean(json.loads(ld_blob))
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Failed to parse ld+json from {url}: {e}") from e
         tralbum = _extract_tralbum(text)
 
         kwords = data.get('keywords', "")
@@ -120,13 +129,16 @@ class BandcampTrack:
         for k, v in get_props(data).items():
             track[k] = v
 
-        # Pull stream URL from data-tralbum if not already present
+        # Pull stream URL and duration from data-tralbum if not already present
+        trackinfo = (tralbum.get("trackinfo") or [{}])[0]
         if not track.get("file_mp3-128"):
-            trackinfo = tralbum.get("trackinfo") or []
-            if trackinfo:
-                mp3 = trackinfo[0].get("file", {}).get("mp3-128")
-                if mp3:
-                    track["file_mp3-128"] = mp3
+            mp3 = trackinfo.get("file", {}).get("mp3-128")
+            if mp3:
+                track["file_mp3-128"] = mp3
+        if not track.get("duration_secs"):
+            dur = trackinfo.get("duration")
+            if dur:
+                track["duration_secs"] = int(dur)
 
         return track
 
@@ -266,8 +278,11 @@ class BandcampAlbum:
         data = extract_ldjson_blob(url, clean=True)
         comments = []
         for d in data.get("comment", []):
+            text = d.get("text", "")
+            if isinstance(text, list):
+                text = " ".join(text)
             comment = {
-                "text": d["text"],
+                "text": text,
                 'image': d["author"].get("image"),
                 "author": d["author"]["name"]
             }

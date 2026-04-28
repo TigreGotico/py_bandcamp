@@ -21,51 +21,16 @@ class BandCamp:
         return tag_list
 
     @classmethod
-    def search_tag(cls, tag, page=1, pop_date=1):
-        tag = tag.strip().replace(" ", "-").lower()
-        if tag not in cls.tags():
-            return []
-        params = {"page": page, "sort_field": pop_date}
-        url = 'http://bandcamp.com/tag/' + str(tag)
-        data = extract_blob(url, params=params)
-
-        related_tags = [{"name": t["norm_name"], "score": t["relation"]}
-                        for t in data["hub"].pop("related_tags")]
-
-        collections, dig_deeper = data["hub"].pop("tabs")
-        dig_deeper = dig_deeper["dig_deeper"]["results"]
-        collections = collections["collections"]
-
-        _to_remove = ['custom_domain', 'custom_domain_verified', "item_type",
-                      'packages', 'slug_text', 'subdomain', 'is_preorder',
-                      'item_id', 'num_comments', 'tralbum_id', 'band_id',
-                      'tralbum_type', 'tag_id', 'audio_track_id']
-
-        for c in collections:
-            if c["name"] == "bc_dailys":
-                continue
-            for result in c["items"]:
-                result["image"] = "https://f4.bcbits.com/img/a{art_id}_1.jpg". \
-                    format(art_id=result.pop("art_id"))
-                for _ in _to_remove:
-                    if _ in result:
-                        result.pop(_)
-                result["related_tags"] = related_tags
-                result["collection"] = c["name"]
-                if "tralbum_url" in result:
-                    result["album_url"] = result.pop("tralbum_url")
-                yield BandcampTrack(result, parse=False)
-
-        for k in dig_deeper:
-            for result in dig_deeper[k]["items"]:
-                for _ in _to_remove:
-                    if _ in result:
-                        result.pop(_)
-                result["related_tags"] = related_tags
-                result["collection"] = "dig_deeper"
-                if "tralbum_url" in result:
-                    result["album_url"] = result.pop("tralbum_url")
-                yield BandcampTrack(result, parse=False)
+    def search_tag(cls, tag, **kwargs):
+        # Bandcamp's tag hub page is now a fully client-side React app.
+        # The server-rendered data blob no longer contains track/album items.
+        # Use search() with the tag as the query instead:
+        #   BandCamp.search(tag, albums=True, tracks=True)
+        raise NotImplementedError(
+            "search_tag() is broken: Bandcamp's tag hub is now client-side and "
+            "no longer exposes items in the page blob. "
+            f"Use BandCamp.search({tag!r}) instead."
+        )
 
     @classmethod
     def search_albums(cls, album_name):
