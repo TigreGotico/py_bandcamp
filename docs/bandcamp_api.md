@@ -152,10 +152,15 @@ album = BandcampAlbum({"url": "...", "title": "..."}, scrap=False)
 | `artist` | `BandcampArtist\|None` | Artist (fetches page) |
 | `releases` | `list[dict]` | Release formats (`format`, `title`, `url`, `image`) |
 | `comments` | `list[dict]` | Comments (`author`, `text`, `image`) |
+| `recommendations` | `list[BandcampAlbum]` | Albums Bandcamp recommends for fans of this album |
+| `related_artists` | `list[BandcampArtist]` | Unique artists from `recommendations` |
 
 Tracks in `album.tracks` have `duration` populated from the ISO 8601 duration
 on the album page. They do **not** have stream URLs — call `track.parse_page()`
 on individual tracks to load those.
+
+`recommendations` scrapes the "If you like…" section at the bottom of the album page.
+Availability depends on the album having enough purchase/fan data on Bandcamp.
 
 ---
 
