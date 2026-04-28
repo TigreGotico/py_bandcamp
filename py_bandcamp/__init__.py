@@ -21,16 +21,10 @@ class BandCamp:
         return tag_list
 
     @classmethod
-    def search_tag(cls, tag, **kwargs):
-        # Bandcamp's tag hub page is now a fully client-side React app.
-        # The server-rendered data blob no longer contains track/album items.
-        # Use search() with the tag as the query instead:
-        #   BandCamp.search(tag, albums=True, tracks=True)
-        raise NotImplementedError(
-            "search_tag() is broken: Bandcamp's tag hub is now client-side and "
-            "no longer exposes items in the page blob. "
-            f"Use BandCamp.search({tag!r}) instead."
-        )
+    def search_tag(cls, tag, albums=True, tracks=True, artists=True, labels=False, max_pages=10):
+        tag = tag.strip().replace(" ", "-").lower()
+        yield from cls.search(tag, albums=albums, tracks=tracks,
+                              artists=artists, labels=labels, max_pages=max_pages)
 
     @classmethod
     def search_albums(cls, album_name):
