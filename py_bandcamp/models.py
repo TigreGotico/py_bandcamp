@@ -155,6 +155,65 @@ class BandcampTrack:
         return hash(self.url)
 
 
+class BandcampSingle:
+    """A Bandcamp single — a /track/ release treated as a one-track album."""
+
+    release_type = "single"
+
+    def __init__(self, data):
+        self._data = data
+
+    @staticmethod
+    def from_url(url):
+        t = BandcampTrack({"url": url})
+        return BandcampSingle({
+            "url": url,
+            "title": t.title,
+            "artist": getattr(t.artist, "name", None) if t.artist else None,
+            "image": t.image,
+            "track": t,
+        })
+
+    @property
+    def url(self):
+        return self._data.get("url", "")
+
+    @property
+    def title(self):
+        return self._data.get("title") or self.url.split("/")[-1]
+
+    @property
+    def artist(self):
+        return self._data.get("artist")
+
+    @property
+    def image(self):
+        return self._data.get("image")
+
+    @property
+    def tracks(self):
+        t = self._data.get("track")
+        if t is None:
+            t = BandcampTrack({"url": self.url})
+        return [t]
+
+    @property
+    def data(self):
+        return self._data
+
+    def __str__(self):
+        return self.url
+
+    def __repr__(self):
+        return f"BandcampSingle:{self.title}"
+
+    def __eq__(self, other):
+        return str(self) == str(other)
+
+    def __hash__(self):
+        return hash(self.url)
+
+
 class BandcampAlbum:
     def __init__(self, data, scrap=True):
         self._url = data.get("url")
@@ -472,23 +531,32 @@ class BandcampArtist:
         return self.featured_album.featured_track
 
     @staticmethod
-    def get_albums(url):
+    def get_albums(url, scrap=False, include_singles=False):
         albums = []
+        singles = []
         soup = BeautifulSoup(requests.get(url).text, "html.parser")
-        for album in soup.find_all("a"):
-            title_tag = album.find("p", {"class": "title"})
+        for item in soup.find_all("a"):
+            title_tag = item.find("p", {"class": "title"})
             if not title_tag:
                 continue
             title = title_tag.text.strip()
-            art_div = album.find("div", {"class": "art"})
+            art_div = item.find("div", {"class": "art"})
             art_img = art_div.find("img") if art_div else None
             art = art_img["src"] if art_img else None
-            href = album.get("href", "")
-            album_url = url + href
-            albums.append(BandcampAlbum({"album_name": title,
-                                         "image": art,
-                                         "url": album_url}))
+            href = item.get("href", "")
+            item_url = url.rstrip("/") + href
+            if "/track/" in href:
+                singles.append(BandcampSingle({"url": item_url, "title": title, "image": art}))
+            elif "/album/" in href:
+                albums.append(BandcampAlbum({"album_name": title, "image": art, "url": item_url}, scrap=scrap))
+        if include_singles:
+            return albums, singles
         return albums
+
+    @staticmethod
+    def get_singles(url):
+        _, singles = BandcampArtist.get_albums(url, include_singles=True)
+        return singles
 
     @property
     def albums(self):
