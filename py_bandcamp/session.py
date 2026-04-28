@@ -1,3 +1,9 @@
-import requests_cache
+import requests
 
-SESSION = requests_cache.CachedSession(expire_after=5 * 60, backend="memory")
+SESSION = requests.Session()
+
+
+def set_session(session):
+    """Replace the global HTTP session (e.g. to inject auth headers or a mock)."""
+    global SESSION
+    SESSION = session

@@ -1,5 +1,7 @@
-from py_bandcamp.models import *
-from py_bandcamp.session import SESSION as requests
+from bs4 import BeautifulSoup
+
+from py_bandcamp.models import BandcampTrack, BandcampAlbum, BandcampArtist, BandcampLabel
+from py_bandcamp.session import SESSION as requests, set_session
 from py_bandcamp.utils import extract_ldjson_blob, get_props, extract_blob, \
     get_stream_data
 
@@ -19,53 +21,10 @@ class BandCamp:
         return tag_list
 
     @classmethod
-    def search_tag(cls, tag, page=1, pop_date=1):
+    def search_tag(cls, tag, albums=True, tracks=True, artists=True, labels=False, max_pages=10):
         tag = tag.strip().replace(" ", "-").lower()
-        if tag not in cls.tags():
-            return []
-        params = {"page": page, "sort_field": pop_date}
-        url = 'http://bandcamp.com/tag/' + str(tag)
-        data = extract_blob(url, params=params)
-
-        related_tags = [{"name": t["norm_name"], "score": t["relation"]}
-                        for t in data["hub"].pop("related_tags")]
-
-        collections, dig_deeper = data["hub"].pop("tabs")
-        dig_deeper = dig_deeper["dig_deeper"]["results"]
-        collections = collections["collections"]
-
-        _to_remove = ['custom_domain', 'custom_domain_verified', "item_type",
-                      'packages', 'slug_text', 'subdomain', 'is_preorder',
-                      'item_id', 'num_comments', 'tralbum_id', 'band_id',
-                      'tralbum_type', 'tag_id', 'audio_track_id']
-
-        for c in collections:
-            if c["name"] == "bc_dailys":
-                continue
-            for result in c["items"]:
-                result["image"] = "https://f4.bcbits.com/img/a{art_id}_1.jpg". \
-                    format(art_id=result.pop("art_id"))
-                for _ in _to_remove:
-                    if _ in result:
-                        result.pop(_)
-                result["related_tags"] = related_tags
-                result["collection"] = c["name"]
-                if "tralbum_url" in result:
-                    result["album_url"] = result.pop("tralbum_url")
-                # TODO featured track object
-                yield BandcampTrack(result, parse=False)
-
-        for k in dig_deeper:
-            for result in dig_deeper[k]["items"]:
-                for _ in _to_remove:
-                    if _ in result:
-                        result.pop(_)
-                result["related_tags"] = related_tags
-                result["collection"] = "dig_deeper"
-                if "tralbum_url" in result:
-                    result["album_url"] = result.pop("tralbum_url")
-                # TODO featured track object
-                yield BandcampTrack(result, parse=False)
+        yield from cls.search(tag, albums=albums, tracks=tracks,
+                              artists=artists, labels=labels, max_pages=max_pages)
 
     @classmethod
     def search_albums(cls, album_name):
@@ -92,38 +51,62 @@ class BandCamp:
             yield a
 
     @classmethod
-    def search(cls, name, page=1, albums=True, tracks=True, artists=True,
-               labels=False):
-        params = {"page": page, "q": name}
-        response = requests.get('http://bandcamp.com/search', params=params)
-        html_doc = response.content
-        soup = BeautifulSoup(html_doc, 'html.parser')
+    def search(cls, name, albums=True, tracks=True, artists=True,
+               labels=False, max_pages=10, _page=1, _seen=None):
+        _seen = _seen or set()
 
-        seen = []
+        # Use Bandcamp's item_type filter when only one type is requested
+        if tracks and not albums and not artists and not labels:
+            item_type = "t"
+        elif albums and not tracks and not artists and not labels:
+            item_type = "a"
+        elif artists and not albums and not tracks and not labels:
+            item_type = "b"
+        else:
+            item_type = None
+
+        params = {"page": _page, "q": name}
+        if item_type:
+            params["item_type"] = item_type
+        response = requests.get('http://bandcamp.com/search', params=params)
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        page_results = []
         for item in soup.find_all("li", class_="searchresult"):
-            item_type = item.find('div',
-                                  class_='itemtype').text.strip().lower()
-            if item_type == "album" and albums:
+            item_type_text = item.find('div', class_='itemtype').text.strip().lower()
+            if item_type_text == "album" and albums:
                 data = cls._parse_album(item)
-            elif item_type == "track" and tracks:
+            elif item_type_text == "track" and tracks:
                 data = cls._parse_track(item)
-            elif item_type == "artist" and artists:
+            elif item_type_text == "artist" and artists:
                 data = cls._parse_artist(item)
-            elif item_type == "label" and labels:
+            elif item_type_text == "label" and labels:
                 data = cls._parse_label(item)
             else:
                 continue
-            # data["type"] = type
+            if data is None or str(data) in _seen:
+                continue
+            _seen.add(str(data))
+            page_results.append(data)
             yield data
-            seen.append(data)
-        if not len(seen):
-            return  # no more pages
-        for item in cls.search(name, page=page + 1, albums=albums,
-                               tracks=tracks, artists=artists,
-                               labels=labels):
-            if item in seen:
-                return  # duplicate data, fail safe out of loops
-            yield item
+
+        if not page_results or _page >= max_pages:
+            return
+        yield from cls.search(name, albums=albums, tracks=tracks,
+                              artists=artists, labels=labels,
+                              max_pages=max_pages, _page=_page + 1,
+                              _seen=_seen)
+
+    @staticmethod
+    def get_recommendations(url):
+        """Albums recommended for fans of a given album URL."""
+        return BandcampAlbum.get_recommendations(url)
+
+    @staticmethod
+    def get_related_artists(url):
+        """Unique artists recommended for fans of a given album URL."""
+        album = BandcampAlbum({"url": url}, scrap=False)
+        return album.related_artists
 
     @staticmethod
     def get_track_lyrics(track_url):
@@ -138,111 +121,103 @@ class BandCamp:
     def get_streams(cls, urls):
         if not isinstance(urls, list):
             urls = [urls]
-        direct_links = [cls.get_stream_url(url) for url in urls]
-        return direct_links
+        return [cls.get_stream_url(url) for url in urls]
 
     @classmethod
     def get_stream_url(cls, url):
         data = get_stream_data(url)
-        print(data)
-        for p in data['additionalProperty']:
-            if p['name'] == 'file_mp3-128':
-                return p["value"]
-        return url
+        return data.get("stream") or url
 
     @staticmethod
     def _parse_label(item):
-        art = item.find("div", {"class": "art"}).find("img")
-        if art:
-            art = art["src"]
+        art_tag = item.find("div", {"class": "art"})
+        art_img = art_tag.find("img") if art_tag else None
+        art = art_img["src"] if art_img else None
         name = item.find('div', class_='heading').text.strip()
-        url = item.find(
-            'div', class_='heading').find('a')['href'].split("?")[0]
-        location = item.find('div', class_='subhead').text.strip()
+        url = item.find('div', class_='heading').find('a')['href'].split("?")[0]
+        subhead = item.find('div', class_='subhead')
+        location = subhead.text.strip() if subhead else ""
         try:
-            tags = item.find(
-                'div', class_='tags').text.replace("tags:", "").split(",")
+            tags = item.find('div', class_='tags').text.replace("tags:", "").split(",")
             tags = [t.strip().lower() for t in tags]
-        except:  # sometimes missing
+        except (AttributeError, KeyError):
             tags = []
-
-        data = {"name": name, "location": location,
-                "tags": tags, "url": url, "image": art
-                }
-        return BandcampLabel(data)
+        return BandcampLabel({"name": name, "location": location,
+                              "tags": tags, "url": url, "image": art})
 
     @staticmethod
     def _parse_artist(item):
         name = item.find('div', class_='heading').text.strip()
-        url = item.find(
-            'div', class_='heading').find('a')['href'].split("?")[0]
-        genre = item.find(
-            'div', class_='genre').text.strip().replace("genre: ", "")
-        location = item.find('div', class_='subhead').text.strip()
+        url = item.find('div', class_='heading').find('a')['href'].split("?")[0]
+        genre_tag = item.find('div', class_='genre')
+        genre = genre_tag.text.strip().replace("genre: ", "") if genre_tag else ""
+        subhead = item.find('div', class_='subhead')
+        location = subhead.text.strip() if subhead else ""
         try:
-            tags = item.find(
-                'div', class_='tags').text.replace("tags:", "").split(",")
+            tags = item.find('div', class_='tags').text.replace("tags:", "").split(",")
             tags = [t.strip().lower() for t in tags]
-        except:  # sometimes missing
+        except (AttributeError, KeyError):
             tags = []
-        art = item.find("div", {"class": "art"}).find("img")["src"]
-
-        data = {"name": name, "genre": genre, "location": location,
-                "tags": tags, "url": url, "image": art, "albums": []
-                }
-        return BandcampArtist(data)
+        art_tag = item.find("div", {"class": "art"})
+        art_img = art_tag.find("img") if art_tag else None
+        art = art_img["src"] if art_img else None
+        return BandcampArtist({"name": name, "genre": genre, "location": location,
+                               "tags": tags, "url": url, "image": art, "albums": []},
+                              scrap=False)
 
     @staticmethod
     def _parse_track(item):
         track_name = item.find('div', class_='heading').text.strip()
-        url = item.find(
-            'div', class_='heading').find('a')['href'].split("?")[0]
-        album_name, artist = item.find(
-            'div', class_='subhead').text.strip().split("by")
-        album_name = album_name.strip().replace("from ", "")
-        artist = artist.strip()
-        released = item.find(
-            'div', class_='released').text.strip().replace("released ", "")
+        url = item.find('div', class_='heading').find('a')['href'].split("?")[0]
+        subhead = item.find('div', class_='subhead')
+        subhead_text = subhead.text.strip() if subhead else ""
+        if "by" in subhead_text:
+            parts = subhead_text.split("by", 1)
+            album_name = parts[0].strip().replace("from ", "")
+            artist = parts[1].strip()
+        else:
+            album_name = subhead_text.replace("from ", "").strip()
+            artist = ""
+        released_tag = item.find('div', class_='released')
+        released = released_tag.text.strip().replace("released ", "") if released_tag else ""
         try:
-            tags = item.find(
-                'div', class_='tags').text.replace("tags:", "").split(",")
+            tags = item.find('div', class_='tags').text.replace("tags:", "").split(",")
             tags = [t.strip().lower() for t in tags]
-        except:  # sometimes missing
+        except (AttributeError, KeyError):
             tags = []
-
-        art = item.find("div", {"class": "art"}).find("img")["src"]
-        data = {"track_name": track_name, "released": released, "url": url,
-                "tags": tags, "album_name": album_name, "artist": artist,
-                "image": art
-                }
-        return BandcampTrack(data)
+        art_tag = item.find("div", {"class": "art"})
+        art_img = art_tag.find("img") if art_tag else None
+        art = art_img["src"] if art_img else None
+        return BandcampTrack({"track_name": track_name, "released": released,
+                              "url": url, "tags": tags, "album_name": album_name,
+                              "artist": artist, "image": art}, parse=False)
 
     @staticmethod
     def _parse_album(item):
-        art = item.find("div", {"class": "art"}).find("img")["src"]
+        art_tag = item.find("div", {"class": "art"})
+        art_img = art_tag.find("img") if art_tag else None
+        art = art_img["src"] if art_img else None
         album_name = item.find('div', class_='heading').text.strip()
-        url = item.find(
-            'div', class_='heading').find('a')['href'].split("?")[0]
-        length = item.find('div', class_='length').text.strip()
-        tracks, minutes = length.split(",")
-        tracks = tracks.replace(" tracks", "").replace(" track", "").strip()
-        minutes = minutes.replace(" minutes", "").strip()
-        released = item.find(
-            'div', class_='released').text.strip().replace("released ", "")
-        tags = item.find(
-            'div', class_='tags').text.replace("tags:", "").split(",")
-        tags = [t.strip().lower() for t in tags]
+        url = item.find('div', class_='heading').find('a')['href'].split("?")[0]
+        length_tag = item.find('div', class_='length')
+        tracks, minutes = "", ""
+        if length_tag:
+            length = length_tag.text.strip()
+            parts = length.split(",")
+            if len(parts) == 2:
+                tracks = parts[0].replace(" tracks", "").replace(" track", "").strip()
+                minutes = parts[1].replace(" minutes", "").strip()
+        released_tag = item.find('div', class_='released')
+        released = released_tag.text.strip().replace("released ", "") if released_tag else ""
+        try:
+            tags = item.find('div', class_='tags').text.replace("tags:", "").split(",")
+            tags = [t.strip().lower() for t in tags]
+        except (AttributeError, KeyError):
+            tags = []
         artist = item.find("div", {"class": "subhead"}).text.strip()
         if artist.startswith("by "):
             artist = artist[3:]
-        data = {"album_name": album_name,
-                "length": length,
-                "minutes": minutes,
-                "url": url,
-                "image": art,
-                "artist": artist,
-                "track_number": tracks,
-                "released": released,
-                "tags": tags
-                }
-        return BandcampAlbum(data, scrap=False)
+        return BandcampAlbum({"album_name": album_name, "minutes": minutes,
+                              "url": url, "image": art, "artist": artist,
+                              "track_number": tracks, "released": released,
+                              "tags": tags}, scrap=False)
