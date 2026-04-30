@@ -383,7 +383,7 @@ def test_artist_get_albums():
         mu.get.return_value = _mock_resp(_ld_page(ALBUM_LD))
         albums = BandcampArtist.get_albums("https://a.bandcamp.com")
     assert len(albums) == 2
-    assert albums[0].title == "LP"   # title comes from scrap'd ALBUM_LD
+    assert albums[0].title == "Great LP"   # title comes from artist page HTML
     assert "lp1" in albums[0].url
 
 

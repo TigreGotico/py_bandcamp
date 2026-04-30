@@ -282,7 +282,7 @@ class BandcampAlbum:
     @property
     def title(self):
         return self.data.get("title") or self.data.get("name") or \
-               self.url.split("/")[-1]
+               self.data.get("album_name") or self.url.split("/")[-1]
 
     @property
     def releases(self):
