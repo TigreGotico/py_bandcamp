@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 from py_bandcamp.session import SESSION as requests
-from py_bandcamp.utils import extract_ldjson_blob, get_props, _extract_tralbum, _parse_iso_duration
+from py_bandcamp.utils import extract_ldjson_blob, _parse_ldjson, get_props, _extract_tralbum, _parse_iso_duration
 
 
 class BandcampTrack:
@@ -379,33 +379,32 @@ class BandcampAlbum:
 
     @staticmethod
     def get_tracks(url):
-        data = extract_ldjson_blob(url, clean=True)
+        resp = requests.get(url)
+        text = resp.text
+        data = _parse_ldjson(text, clean=True)
         if not data.get("track"):
             return []
 
-        # Pull data-tralbum from the same album page to surface per-track track_id
-        # and the album/band numeric ids; fall back gracefully if unavailable.
-        tralbum = {}
-        try:
-            resp = requests.get(url)
-            if resp.ok:
-                tralbum = _extract_tralbum(resp.text)
-        except Exception:
-            tralbum = {}
+        tralbum = _extract_tralbum(text)
         current = tralbum.get("current") or {}
         album_item_id = tralbum.get("id") or current.get("id")
         band_id = current.get("band_id") or tralbum.get("band_id")
         trackinfos = tralbum.get("trackinfo") or []
-        # tracknum (1-based) -> trackinfo entry
-        ti_by_num = {ti.get("track_num"): ti for ti in trackinfos if ti.get("track_num")}
-
-        data = data['track']
+        ti_by_num = {}
+        for ti in trackinfos:
+            try:
+                ti_by_num[int(ti["track_num"])] = ti
+            except (KeyError, TypeError, ValueError):
+                pass
 
         tracks = []
-
-        for entry in data.get('itemListElement', []):
+        for entry in data['track'].get('itemListElement', []):
             d = entry.get('item', {})
             position = entry.get('position')
+            try:
+                pos_int = int(position)
+            except (TypeError, ValueError):
+                pos_int = None
             track = {
                 "title": d.get('name'),
                 "url": d.get('id') or url,
@@ -415,8 +414,8 @@ class BandcampAlbum:
             }
             for k, v in get_props(d).items():
                 track[k] = v
-            ti = ti_by_num.get(position) or (
-                trackinfos[position - 1] if isinstance(position, int) and 0 < position <= len(trackinfos) else {}
+            ti = ti_by_num.get(pos_int) or (
+                trackinfos[pos_int - 1] if pos_int is not None and 0 < pos_int <= len(trackinfos) else {}
             )
             track_id = ti.get("track_id") or ti.get("id")
             if track_id is not None:
@@ -474,7 +473,9 @@ class BandcampAlbum:
 
     @staticmethod
     def get_album_data(url):
-        data = extract_ldjson_blob(url, clean=True)
+        resp = requests.get(url)
+        text = resp.text
+        data = _parse_ldjson(text, clean=True)
         props = get_props(data)
         kwords = data.get('keywords', "")
         if isinstance(kwords, str):
@@ -491,21 +492,15 @@ class BandcampAlbum:
             'featured_track_num': props.get('featured_track_num'),
             'keywords': kwords
         }
-        # Pull canonical numeric ids from data-tralbum (best-effort).
-        try:
-            resp = requests.get(url)
-            if resp.ok:
-                tralbum = _extract_tralbum(resp.text)
-                current = tralbum.get("current") or {}
-                item_id = tralbum.get("id") or current.get("id")
-                if item_id is not None:
-                    result["album_id"] = item_id
-                    result["item_id"] = item_id
-                band_id = current.get("band_id") or tralbum.get("band_id")
-                if band_id is not None:
-                    result["band_id"] = band_id
-        except Exception:
-            pass
+        tralbum = _extract_tralbum(text)
+        current = tralbum.get("current") or {}
+        item_id = tralbum.get("id") or current.get("id")
+        if item_id is not None:
+            result["album_id"] = item_id
+            result["item_id"] = item_id
+        band_id = current.get("band_id") or tralbum.get("band_id")
+        if band_id is not None:
+            result["band_id"] = band_id
         return result
 
     def __repr__(self):

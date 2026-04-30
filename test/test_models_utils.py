@@ -249,8 +249,11 @@ def test_track_get_album():
           "inAlbum": {"@type": "MusicAlbum", "name": "LP",
                       "@id": "https://a.bandcamp.com/album/lp"},
           "additionalProperty": []}
-    with patch("py_bandcamp.utils.requests") as m:
-        m.get.return_value = _mock_resp(_ld_page(ld))
+    mock_resp = _mock_resp(_ld_page(ld))
+    with patch("py_bandcamp.utils.requests") as mu, \
+         patch("py_bandcamp.models.requests") as mm:
+        mu.get.return_value = mock_resp
+        mm.get.return_value = mock_resp
         album = BandcampTrack.get_album("https://a.bandcamp.com/track/t")
     assert isinstance(album, BandcampAlbum)
     assert album.url == "https://a.bandcamp.com/album/lp"
@@ -286,30 +289,45 @@ def test_track_get_artist_none_when_missing():
 # models: BandcampAlbum static methods (use extract_ldjson_blob → utils.requests)
 # ---------------------------------------------------------------------------
 
+ALBUM_TRALBUM = {
+    "id": 112233,
+    "current": {"id": 112233, "band_id": 445566},
+    "trackinfo": [{"track_num": 1, "track_id": 778899}],
+}
+
+
 def test_album_get_album_data():
-    with patch("py_bandcamp.utils.requests") as m:
-        m.get.return_value = _mock_resp(_ld_page(ALBUM_LD))
+    page = _tralbum_page(ALBUM_TRALBUM, ld_data=ALBUM_LD)
+    with patch("py_bandcamp.models.requests") as m:
+        m.get.return_value = _mock_resp(page)
         data = BandcampAlbum.get_album_data("https://a.bandcamp.com/album/lp")
     assert data["title"] == "LP"
     assert data["n_tracks"] == 5
     assert data["featured_track_num"] == 1
+    assert data["album_id"] == 112233
+    assert data["item_id"] == 112233
+    assert data["band_id"] == 445566
 
 
 def test_album_get_tracks():
-    with patch("py_bandcamp.utils.requests") as m:
-        m.get.return_value = _mock_resp(_ld_page(ALBUM_LD))
+    page = _tralbum_page(ALBUM_TRALBUM, ld_data=ALBUM_LD)
+    with patch("py_bandcamp.models.requests") as m:
+        m.get.return_value = _mock_resp(page)
         tracks = BandcampAlbum.get_tracks("https://a.bandcamp.com/album/lp")
     assert len(tracks) == 1
     assert isinstance(tracks[0], BandcampTrack)
     assert tracks[0].title == "Track One"
     assert tracks[0].track_num == 1
     assert tracks[0].duration == 273  # 4m33s
+    assert tracks[0].track_id == 778899
+    assert tracks[0].album_id == 112233
+    assert tracks[0].band_id == 445566
 
 
 def test_album_get_tracks_empty_when_no_track_key():
     ld = dict(ALBUM_LD)
     ld.pop("track")
-    with patch("py_bandcamp.utils.requests") as m:
+    with patch("py_bandcamp.models.requests") as m:
         m.get.return_value = _mock_resp(_ld_page(ld))
         assert BandcampAlbum.get_tracks("https://a.bandcamp.com/album/lp") == []
 
@@ -341,7 +359,7 @@ def test_album_get_artist():
 
 
 def test_album_featured_track():
-    with patch("py_bandcamp.utils.requests") as m:
+    with patch("py_bandcamp.models.requests") as m:
         m.get.return_value = _mock_resp(_ld_page(ALBUM_LD))
         album = BandcampAlbum({"url": "https://a.bandcamp.com/album/lp"})
         ft = album.featured_track  # must be inside patch — triggers get_tracks()
@@ -352,7 +370,7 @@ def test_album_featured_track():
 def test_album_featured_track_none_when_no_tracks():
     ld = dict(ALBUM_LD)
     ld.pop("track")
-    with patch("py_bandcamp.utils.requests") as m:
+    with patch("py_bandcamp.models.requests") as m:
         m.get.return_value = _mock_resp(_ld_page(ld))
         album = BandcampAlbum({"url": "https://a.bandcamp.com/album/lp"})
         ft = album.featured_track

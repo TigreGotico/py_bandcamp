@@ -40,13 +40,11 @@ def _extract_tralbum(text):
         return {}
 
 
-def extract_ldjson_blob(url, clean=False):
-    txt_string = requests.get(url).text
-
-    json_blob = txt_string. \
-        split('<script type="application/ld+json">')[-1]. \
-        split("</script>")[0]
-
+def _parse_ldjson(text, clean=False):
+    """Parse ld+json from an already-fetched HTML string."""
+    json_blob = text \
+        .split('<script type="application/ld+json">')[-1] \
+        .split("</script>")[0]
     data = json.loads(json_blob)
 
     def _clean_list(l):
@@ -71,6 +69,10 @@ def extract_ldjson_blob(url, clean=False):
     if clean:
         return _clean_dict(data)
     return data
+
+
+def extract_ldjson_blob(url, clean=False):
+    return _parse_ldjson(requests.get(url).text, clean=clean)
 
 
 def get_props(d, props=None):
