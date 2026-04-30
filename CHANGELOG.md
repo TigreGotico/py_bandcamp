@@ -1,12 +1,28 @@
 # Changelog
 
-## [0.7.1a1](https://github.com/TigreGotico/py_bandcamp/tree/0.7.1a1) (2026-04-28)
+## [0.10.0a1](https://github.com/TigreGotico/py_bandcamp/tree/0.10.0a1) (2026-04-30)
 
-[Full Changelog](https://github.com/TigreGotico/py_bandcamp/compare/0b538d74793376c0baec1108929a5a27872e1bfe...0.7.1a1)
+[Full Changelog](https://github.com/TigreGotico/py_bandcamp/compare/0.9.0a1...0.10.0a1)
 
 **Merged pull requests:**
 
-- feat: modernize — pyproject.toml, bug fixes, stream extraction, tests, docs, CI [\#2](https://github.com/TigreGotico/py_bandcamp/pull/2) ([JarbasAl](https://github.com/JarbasAl))
+- feat: surface BandcampArtist.band\_id \(+ item\_id alias\) [\#12](https://github.com/TigreGotico/py_bandcamp/pull/12) ([JarbasAl](https://github.com/JarbasAl))
+
+## [0.9.0a1](https://github.com/TigreGotico/py_bandcamp/tree/0.9.0a1) (2026-04-30)
+
+[Full Changelog](https://github.com/TigreGotico/py_bandcamp/compare/0.8.0a1...0.9.0a1)
+
+**Merged pull requests:**
+
+- feat: surface canonical numeric IDs from data-tralbum [\#10](https://github.com/TigreGotico/py_bandcamp/pull/10) ([JarbasAl](https://github.com/JarbasAl))
+
+## [0.8.0a1](https://github.com/TigreGotico/py_bandcamp/tree/0.8.0a1) (2026-04-28)
+
+[Full Changelog](https://github.com/TigreGotico/py_bandcamp/compare/0.7.1...0.8.0a1)
+
+**Merged pull requests:**
+
+- feat: BandcampSingle model and release-type-aware get\_albums [\#8](https://github.com/TigreGotico/py_bandcamp/pull/8) ([JarbasAl](https://github.com/JarbasAl))
 
 
 
