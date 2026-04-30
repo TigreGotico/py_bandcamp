@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0a1](https://github.com/TigreGotico/py_bandcamp/tree/0.10.0a1) (2026-04-30)
+
+[Full Changelog](https://github.com/TigreGotico/py_bandcamp/compare/0.9.0a1...0.10.0a1)
+
+**Merged pull requests:**
+
+- feat: surface BandcampArtist.band\_id \(+ item\_id alias\) [\#12](https://github.com/TigreGotico/py_bandcamp/pull/12) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.9.0a1](https://github.com/TigreGotico/py_bandcamp/tree/0.9.0a1) (2026-04-30)
 
 [Full Changelog](https://github.com/TigreGotico/py_bandcamp/compare/0.8.0a1...0.9.0a1)
