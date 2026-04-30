@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0a1](https://github.com/TigreGotico/py_bandcamp/tree/0.9.0a1) (2026-04-30)
+
+[Full Changelog](https://github.com/TigreGotico/py_bandcamp/compare/0.8.0a1...0.9.0a1)
+
+**Merged pull requests:**
+
+- feat: surface canonical numeric IDs from data-tralbum [\#10](https://github.com/TigreGotico/py_bandcamp/pull/10) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.8.0a1](https://github.com/TigreGotico/py_bandcamp/tree/0.8.0a1) (2026-04-28)
 
 [Full Changelog](https://github.com/TigreGotico/py_bandcamp/compare/0.7.1...0.8.0a1)
