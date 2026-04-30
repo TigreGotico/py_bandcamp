@@ -381,6 +381,40 @@ def test_album_featured_track_none_when_no_tracks():
 # models: BandcampArtist.get_albums (uses models.requests directly)
 # ---------------------------------------------------------------------------
 
+def test_artist_band_id_from_releases_dict():
+    """Artist root page lacks ``item_sellers`` but ``/releases`` has it as a
+    single-key dict whose key IS the band id."""
+    artist_root = """<html><body><div id="band-name-location">
+        <span class="title">Acme</span>
+        <span class="location">Lisbon</span></div></body></html>"""
+    releases_html = (
+        '<html><body><div data-blob=\'{"item_sellers":'
+        '{"2099893691":{"id":2099893691,"name":"Acme"}}}\'></div></body></html>'
+    )
+    with patch("py_bandcamp.models.requests") as mm:
+        mm.get.side_effect = [
+            _mock_resp(artist_root),     # artist root (scrap)
+            _mock_resp(releases_html),   # /releases (band_id pull)
+        ]
+        artist = BandcampArtist({"url": "https://acme.bandcamp.com/"})
+    assert artist.name == "Acme"
+    assert artist.band_id == 2099893691
+    assert artist.item_id == artist.band_id
+
+
+def test_artist_band_id_handles_missing_sellers():
+    """If ``/releases`` has no ``item_sellers``, ``band_id`` is None — not an
+    exception."""
+    artist_root = """<html><body><div id="band-name-location">
+        <span class="title">Acme</span></div></body></html>"""
+    empty_blob = '<html><body><div data-blob=\'{}\'></div></body></html>'
+    with patch("py_bandcamp.models.requests") as mm:
+        mm.get.side_effect = [_mock_resp(artist_root), _mock_resp(empty_blob)]
+        artist = BandcampArtist({"url": "https://acme.bandcamp.com/"})
+    assert artist.band_id is None
+    assert artist.item_id is None
+
+
 def test_artist_get_albums():
     artist_html = """<html><body>
     <a href="/album/lp1">

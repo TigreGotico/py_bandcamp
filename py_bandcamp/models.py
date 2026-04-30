@@ -1,6 +1,13 @@
 from bs4 import BeautifulSoup
 from py_bandcamp.session import SESSION as requests
-from py_bandcamp.utils import extract_ldjson_blob, _parse_ldjson, get_props, _extract_tralbum, _parse_iso_duration
+from py_bandcamp.utils import (
+    _extract_blob_from_text,
+    _extract_tralbum,
+    _parse_iso_duration,
+    _parse_ldjson,
+    extract_ldjson_blob,
+    get_props,
+)
 
 
 class BandcampTrack:
@@ -582,6 +589,31 @@ class BandcampArtist:
         if scrap:
             self.scrap()
 
+    @staticmethod
+    def _scrap_band_id(artist_url):
+        """Hit ``<artist_url>/releases`` and pull the band id out of the
+        embedded ``item_sellers`` dict. Returns ``None`` on any failure
+        — callers must tolerate it, since Bandcamp's HTML is not stable.
+        """
+        if not artist_url:
+            return None
+        try:
+            resp = requests.get(artist_url.rstrip("/") + "/releases")
+            if not resp.ok:
+                return None
+            blob = _extract_blob_from_text(resp.text) or {}
+        except Exception:
+            return None
+        sellers = blob.get("item_sellers") or {}
+        try:
+            if isinstance(sellers, dict) and sellers:
+                return int(next(iter(sellers)))
+            if isinstance(sellers, list) and sellers:
+                return int(sellers[0])
+        except (TypeError, ValueError):
+            return None
+        return None
+
     def scrap(self):
         if not self._url:
             return {}
@@ -604,13 +636,34 @@ class BandcampArtist:
             if img_tag:
                 img = img_tag.find("img")
                 image = img["src"] if img else None
+
+            # Numeric band id — Bandcamp's artist root page does NOT carry
+            # ``item_sellers``, but the same artist's ``/releases`` page
+            # does (as a single-key dict whose key IS the band id). One
+            # extra cheap HTTP call avoids the band_id being permanently
+            # ``None`` for everyone using ``BandcampArtist.from_url``.
+            band_id = self._scrap_band_id(self._url)
+
             self._page_data = {k: v for k, v in {
                 "name": name, "location": location,
-                "genre": genre, "image": image,
+                "genre": genre, "image": image, "band_id": band_id,
             }.items() if v is not None}
         except Exception:
             self._page_data = {}
         return self._page_data
+
+    @property
+    def band_id(self):
+        """Numeric Bandcamp band/artist id — the canonical cross-platform
+        identifier for an artist. Same value other ``Bandcamp*`` models
+        expose under ``.band_id`` for tracks and albums."""
+        return self.data.get("band_id")
+
+    @property
+    def item_id(self):
+        """Alias for :attr:`band_id` — matches the property name used on
+        :class:`BandcampTrack` and :class:`BandcampAlbum` for symmetry."""
+        return self.band_id
 
     @property
     def featured_album(self):

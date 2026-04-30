@@ -18,14 +18,23 @@ def _parse_iso_duration(iso):
     return 0
 
 
-def extract_blob(url, params=None):
-    blob = requests.get(url, params=params).text
-    for b in blob.split("data-blob='")[1:]:
+def _extract_blob_from_text(text):
+    """Pull and decode the ``data-blob`` JSON from an already-fetched HTML
+    string. Returns ``None`` when the blob is absent. Same parsing rules as
+    :func:`extract_blob`, exposed separately so callers that already have
+    the HTML body don't pay for a second HTTP fetch."""
+    for b in text.split("data-blob='")[1:]:
         json_blob = b.split("'")[0]
         return json.loads(json_blob)
-    for b in blob.split("data-blob=\"")[1:]:
+    for b in text.split("data-blob=\"")[1:]:
         json_blob = b.split("\"")[0].replace("&quot;", '"')
         return json.loads(json_blob)
+    return None
+
+
+def extract_blob(url, params=None):
+    blob = requests.get(url, params=params).text
+    return _extract_blob_from_text(blob)
 
 
 def _extract_tralbum(text):
